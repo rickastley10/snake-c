@@ -1,10 +1,9 @@
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
+#include <SDL2/SDL.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <stdio.h>      // Added for sprintf
-#include <time.h>       // Added for time()
-#include <string.h>     // Added for strlen()
+#include <stdio.h>
+#include <time.h>
+#include <string.h>
 
 /* ============================================================
    CONFIG
@@ -15,118 +14,136 @@
 /* ============================================================
    GLOBALS
    ============================================================ */
-static HBITMAP backbuffer_bitmap;
-static HDC backbuffer_dc;
-static void* backbuffer_memory;
-static BITMAPINFO backbuffer_info;
-static int running = 1; /* 1 = running, 0 = exit */
+static SDL_Window* window = NULL;
+static SDL_Renderer* renderer = NULL;
+static SDL_Texture* backbuffer = NULL;
+static uint32_t* backbuffer_memory = NULL;
+static int running = 1;
 
 /* ============================================================
    RENDERER
    ============================================================ */
 void clear_screen(uint32_t color)
 {
-    int i;
-    uint32_t* pixel = (uint32_t*)backbuffer_memory;
-    for (i = 0; i < WINDOW_WIDTH * WINDOW_HEIGHT; i++)
-        pixel[i] = color;
+    for (int i = 0; i < WINDOW_WIDTH * WINDOW_HEIGHT; i++)
+        backbuffer_memory[i] = color;
 }
 
 void draw_rect(int x, int y, int w, int h, uint32_t color)
 {
-    int px, py, sx, sy;
-    for (py = 0; py < h; py++)
+    for (int py = 0; py < h; py++)
     {
-        sy = y + py;
+        int sy = y + py;
         if (sy < 0 || sy >= WINDOW_HEIGHT) continue;
 
-        for (px = 0; px < w; px++)
+        for (int px = 0; px < w; px++)
         {
-            sx = x + px;
+            int sx = x + px;
             if (sx < 0 || sx >= WINDOW_WIDTH) continue;
 
-            ((uint32_t*)backbuffer_memory)[sy * WINDOW_WIDTH + sx] = color;
+            backbuffer_memory[sy * WINDOW_WIDTH + sx] = color;
         }
     }
 }
 
 /* ============================================================
-   WINDOW
-   ============================================================ */
-LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
-{
-    if (msg == WM_CLOSE || msg == WM_DESTROY)
-    {
-        running = 0;
-        PostQuitMessage(0);
-        return 0;
-    }
-    return DefWindowProc(hwnd, msg, wParam, lParam);
-}
-
-/* ============================================================
    BACKBUFFER
    ============================================================ */
-void init_backbuffer(HWND hwnd)
+int init_backbuffer(void)
 {
-    HDC window_dc;
-    window_dc = GetDC(hwnd);
-    backbuffer_dc = CreateCompatibleDC(window_dc);
+    backbuffer_memory = (uint32_t*)malloc(WINDOW_WIDTH * WINDOW_HEIGHT * sizeof(uint32_t));
+    if (!backbuffer_memory)
+    {
+        printf("Failed to allocate backbuffer memory\n");
+        return 0;
+    }
 
-    /* Initialize bitmap info */
-    memset(&backbuffer_info, 0, sizeof(backbuffer_info));
-    backbuffer_info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    backbuffer_info.bmiHeader.biWidth = WINDOW_WIDTH;
-    backbuffer_info.bmiHeader.biHeight = -WINDOW_HEIGHT; /* top-down */
-    backbuffer_info.bmiHeader.biPlanes = 1;
-    backbuffer_info.bmiHeader.biBitCount = 32;
-    backbuffer_info.bmiHeader.biCompression = BI_RGB;
-
-    backbuffer_bitmap = CreateDIBSection(
-        window_dc,
-        &backbuffer_info,
-        DIB_RGB_COLORS,
-        &backbuffer_memory,
-        NULL,
-        0
+    backbuffer = SDL_CreateTexture(
+        renderer,
+        SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_STREAMING,
+        WINDOW_WIDTH,
+        WINDOW_HEIGHT
     );
 
-    SelectObject(backbuffer_dc, backbuffer_bitmap);
-    ReleaseDC(hwnd, window_dc);
+    if (!backbuffer)
+    {
+        printf("Failed to create texture: %s\n", SDL_GetError());
+        free(backbuffer_memory);
+        return 0;
+    }
+
+    return 1;
+}
+
+void flip_backbuffer(void)
+{
+    SDL_UpdateTexture(backbuffer, NULL, backbuffer_memory, WINDOW_WIDTH * sizeof(uint32_t));
+    SDL_RenderCopy(renderer, backbuffer, NULL, NULL);
+    SDL_RenderPresent(renderer);
+}
+
+void cleanup(void)
+{
+    if (backbuffer_memory)
+        free(backbuffer_memory);
+    if (backbuffer)
+        SDL_DestroyTexture(backbuffer);
+    if (renderer)
+        SDL_DestroyRenderer(renderer);
+    if (window)
+        SDL_DestroyWindow(window);
+    SDL_Quit();
 }
 
 /* ============================================================
    MAIN LOOP
    ============================================================ */
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prev, LPSTR cmd, int show)
+int main(int argc, char* argv[])
 {
-    WNDCLASS wc;
-    HWND hwnd;
-    MSG msg;
-    HDC window_dc;
-
-    int rect_x, rect_y;
-
-    /* Register window class */
-    memset(&wc, 0, sizeof(wc));
-    wc.lpfnWndProc = window_proc;
-    wc.hInstance = hInstance;
-    wc.lpszClassName = "snake";
-    RegisterClass(&wc);
+    /* Initialize SDL */
+    if (SDL_Init(SDL_INIT_VIDEO) < 0)
+    {
+        printf("SDL initialization failed: %s\n", SDL_GetError());
+        return 1;
+    }
 
     /* Create window */
-    hwnd = CreateWindowEx(
-        0,
-        wc.lpszClassName,
+    window = SDL_CreateWindow(
         "snake",
-        WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-        CW_USEDEFAULT, CW_USEDEFAULT,
-        WINDOW_WIDTH, WINDOW_HEIGHT,
-        NULL, NULL, hInstance, NULL
+        SDL_WINDOWPOS_CENTERED,
+        SDL_WINDOWPOS_CENTERED,
+        WINDOW_WIDTH,
+        WINDOW_HEIGHT,
+        SDL_WINDOW_SHOWN
     );
 
-    init_backbuffer(hwnd);
+    if (!window)
+    {
+        printf("Window creation failed: %s\n", SDL_GetError());
+        SDL_Quit();
+        return 1;
+    }
 
+    /* Create renderer */
+    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    if (!renderer)
+    {
+        printf("Renderer creation failed: %s\n", SDL_GetError());
+        cleanup();
+        return 1;
+    }
+
+    /* Initialize backbuffer */
+    if (!init_backbuffer())
+    {
+        cleanup();
+        return 1;
+    }
+
+    /* ============================================================
+       YOUR GAME VARIABLES GO HERE
+       ============================================================ */
     srand(time(NULL));   // Seed once at program start
 
     int w = 20; int h = 20;
@@ -184,84 +201,50 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prev, LPSTR cmd, int show)
     char dir[9]="up";
 
     int bx=(rand()%20)*20;int by=(rand()%20)*20;
-    
+    SDL_Event event;
+    const uint8_t* keyboard_state;
+
     /* ============================================================
-       MAIN LOOP
+       MAIN GAME LOOP
        ============================================================ */
     while (running)
     {
-        while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+        /* Handle events */
+        while (SDL_PollEvent(&event))
         {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
+            if (event.type == SDL_QUIT)
+            {
+                running = 0;
+            }
+            else if (event.type == SDL_KEYDOWN)
+            {
+                if (event.key.keysym.sym == SDLK_ESCAPE)
+                {
+                    running = 0;
+                }
+            }
         }
 
-        // ===== PADDLE CONTROLS =====
-        if (GetAsyncKeyState('W') & 0x8000) {
+        /* Get keyboard state */
+        keyboard_state = SDL_GetKeyboardState(NULL);
+
+        /* ===== INPUT HANDLING ===== */
+        if (keyboard_state[SDL_SCANCODE_W])
+        {
             strcpy(dir, "up");
         }
-        if (GetAsyncKeyState('S') & 0x8000) {
+        if (keyboard_state[SDL_SCANCODE_S])
+        {
             strcpy(dir, "down");
         }
-        if (GetAsyncKeyState('D') & 0x8000) {
+        if (keyboard_state[SDL_SCANCODE_D])
+        {
             strcpy(dir, "right");
         }
-        if (GetAsyncKeyState('A') & 0x8000) {
+        if (keyboard_state[SDL_SCANCODE_A])
+        {
             strcpy(dir, "left");
         }
-
-        /* Example draw */
-        clear_screen(0xFF87CEEB); /* light blue background */
-        /*
-        red - 0xFFFF0000
-        orange - 0xFFFFA500
-        black - 0xFF000000
-        */
-        /*x y w h colour*/
-             draw_rect(px, py, w, h, 0x00ff00);
-             draw_rect(s1x, s1y, w, h, 0x00ff00);
-             draw_rect(s2x, s2y, w, h, 0x00ff00);
-             draw_rect(s3x, s3y, w, h, 0x00ff00);
-             draw_rect(s4x, s4y, w, h, 0x00ff00);
-             draw_rect(s5x, s5y, w, h, 0x00ff00);
-             draw_rect(s6x, s6y, w, h, 0x00ff00);
-             draw_rect(s7x, s7y, w, h, 0x00ff00);
-             draw_rect(s8x, s8y, w, h, 0x00ff00);
-             draw_rect(s9x, s9y, w, h, 0x00ff00);
-             draw_rect(s10x, s10y, w, h, 0x00ff00);
-             draw_rect(s11x, s11y, w, h, 0x00ff00);
-             draw_rect(s12x, s12y, w, h, 0x00ff00);
-             draw_rect(s13x, s13y, w, h, 0x00ff00);
-             draw_rect(s14x, s14y, w, h, 0x00ff00);
-             draw_rect(s15x, s15y, w, h, 0x00ff00);
-             draw_rect(s16x, s16y, w, h, 0x00ff00);
-             draw_rect(s17x, s17y, w, h, 0x00ff00);
-             draw_rect(s18x, s18y, w, h, 0x00ff00);
-             draw_rect(s19x, s19y, w, h, 0x00ff00);
-             draw_rect(s20x, s20y, w, h, 0x00ff00);
-	         draw_rect(s21x, s21y, w, h, 0x00ff00);
-             draw_rect(s22x, s22y, w, h, 0x00ff00);
-             draw_rect(s23x, s23y, w, h, 0x00ff00);
-             draw_rect(s24x, s24y, w, h, 0x00ff00);
-             draw_rect(s25x, s25y, w, h, 0x00ff00);
-             draw_rect(s26x, s26y, w, h, 0x00ff00);
-             draw_rect(s27x, s27y, w, h, 0x00ff00);
-             draw_rect(s28x, s28y, w, h, 0x00ff00);
-             draw_rect(s29x, s29y, w, h, 0x00ff00);
-             draw_rect(s30x, s30y, w, h, 0x00ff00);
-             draw_rect(s31x, s31y, w, h, 0x00ff00);
-             draw_rect(s32x, s32y, w, h, 0x00ff00);
-             draw_rect(s33x, s33y, w, h, 0x00ff00);
-             draw_rect(s34x, s34y, w, h, 0x00ff00);
-             draw_rect(s35x, s35y, w, h, 0x00ff00);
-             draw_rect(s36x, s36y, w, h, 0x00ff00);
-             draw_rect(s37x, s37y, w, h, 0x00ff00);
-             draw_rect(s38x, s38y, w, h, 0x00ff00);
-             draw_rect(s39x, s39y, w, h, 0x00ff00);
-             draw_rect(s40x, s40y, w, h, 0x00ff00);
-			
-			
-             draw_rect(bx, by, w, h, 0xff0000);
 
 
              if(px==bx && py == by){
@@ -495,9 +478,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prev, LPSTR cmd, int show)
                 turn = turn + 1;
             }
             
-            
-            
-            if(strcmp(dir, "up")==0){py=py-h;}
+                        if(strcmp(dir, "up")==0){py=py-h;}
             if(strcmp(dir, "down")==0){py=py+h;}
             if(strcmp(dir, "right")==0){px=px+w;}
             if(strcmp(dir, "left")==0){px=px-w;}
@@ -508,7 +489,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prev, LPSTR cmd, int show)
             if(py<0){py=400;}
             if(py>400){py=0;}
             
-if((s1x == px && s1y == py) ||
+
+            if((s1x == px && s1y == py) ||
 (s2x == px && s2y == py) ||
 (s3x == px && s3y == py) ||
 (s4x == px && s4y == py) ||
@@ -682,17 +664,61 @@ if((s1x == px && s1y == py) ||
     by=(rand()%20)*20;
 
 }
-        /* Flip backbuffer */
-        window_dc = GetDC(hwnd);
-        BitBlt(window_dc, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, backbuffer_dc, 0, 0, SRCCOPY);
-        ReleaseDC(hwnd, window_dc);
+        /* ===== RENDERING ===== */
+        clear_screen(0xFF87CEEB); /* Light blue background */
+        
+        draw_rect(px, py, w, h, 0x00ff00);
+             draw_rect(s1x, s1y, w, h, 0x00ff00);
+             draw_rect(s2x, s2y, w, h, 0x00ff00);
+             draw_rect(s3x, s3y, w, h, 0x00ff00);
+             draw_rect(s4x, s4y, w, h, 0x00ff00);
+             draw_rect(s5x, s5y, w, h, 0x00ff00);
+             draw_rect(s6x, s6y, w, h, 0x00ff00);
+             draw_rect(s7x, s7y, w, h, 0x00ff00);
+             draw_rect(s8x, s8y, w, h, 0x00ff00);
+             draw_rect(s9x, s9y, w, h, 0x00ff00);
+             draw_rect(s10x, s10y, w, h, 0x00ff00);
+             draw_rect(s11x, s11y, w, h, 0x00ff00);
+             draw_rect(s12x, s12y, w, h, 0x00ff00);
+             draw_rect(s13x, s13y, w, h, 0x00ff00);
+             draw_rect(s14x, s14y, w, h, 0x00ff00);
+             draw_rect(s15x, s15y, w, h, 0x00ff00);
+             draw_rect(s16x, s16y, w, h, 0x00ff00);
+             draw_rect(s17x, s17y, w, h, 0x00ff00);
+             draw_rect(s18x, s18y, w, h, 0x00ff00);
+             draw_rect(s19x, s19y, w, h, 0x00ff00);
+             draw_rect(s20x, s20y, w, h, 0x00ff00);
+	         draw_rect(s21x, s21y, w, h, 0x00ff00);
+             draw_rect(s22x, s22y, w, h, 0x00ff00);
+             draw_rect(s23x, s23y, w, h, 0x00ff00);
+             draw_rect(s24x, s24y, w, h, 0x00ff00);
+             draw_rect(s25x, s25y, w, h, 0x00ff00);
+             draw_rect(s26x, s26y, w, h, 0x00ff00);
+             draw_rect(s27x, s27y, w, h, 0x00ff00);
+             draw_rect(s28x, s28y, w, h, 0x00ff00);
+             draw_rect(s29x, s29y, w, h, 0x00ff00);
+             draw_rect(s30x, s30y, w, h, 0x00ff00);
+             draw_rect(s31x, s31y, w, h, 0x00ff00);
+             draw_rect(s32x, s32y, w, h, 0x00ff00);
+             draw_rect(s33x, s33y, w, h, 0x00ff00);
+             draw_rect(s34x, s34y, w, h, 0x00ff00);
+             draw_rect(s35x, s35y, w, h, 0x00ff00);
+             draw_rect(s36x, s36y, w, h, 0x00ff00);
+             draw_rect(s37x, s37y, w, h, 0x00ff00);
+             draw_rect(s38x, s38y, w, h, 0x00ff00);
+             draw_rect(s39x, s39y, w, h, 0x00ff00);
+             draw_rect(s40x, s40y, w, h, 0x00ff00);
+			
+			
+             draw_rect(bx, by, w, h, 0xff0000);
+        /* Flip the backbuffer to the screen */
+        flip_backbuffer();
 
-        Sleep(100); // 100ms ~ 10 FPS (changed comment to match actual value)
+        /* Frame timing (optional) */
+        SDL_Delay(100);
     }
 
-    // Cleanup
-    DeleteDC(backbuffer_dc);
-    DeleteObject(backbuffer_bitmap);
-
+    /* Cleanup and exit */
+    cleanup();
     return 0;
 }
