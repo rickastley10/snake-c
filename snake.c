@@ -108,7 +108,7 @@ int main(int argc, char* argv[])
 
     /* Create window */
     window = SDL_CreateWindow(
-        "SDL2 Engine Demo",
+        "Snake",
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
         WINDOW_WIDTH,
@@ -156,6 +156,7 @@ int main(int argc, char* argv[])
 
     int segments=2;
     int turn=0;
+    int pause=0;
 
     
 
@@ -188,77 +189,88 @@ int main(int argc, char* argv[])
         keyboard_state = SDL_GetKeyboardState(NULL);
 
         /* ===== INPUT HANDLING ===== */
-        if (keyboard_state[SDL_SCANCODE_W] && direction!=3)
+        if ((keyboard_state[SDL_SCANCODE_W] || keyboard_state[SDL_SCANCODE_UP] || keyboard_state[SDL_SCANCODE_I]) && direction!=3)
         {
             direction=1;
         }
-        if (keyboard_state[SDL_SCANCODE_S] && direction!=1)
+        if ((keyboard_state[SDL_SCANCODE_S] || keyboard_state[SDL_SCANCODE_DOWN] || keyboard_state[SDL_SCANCODE_K]) && direction!=1)
         {
             direction=3;
         }
-        if (keyboard_state[SDL_SCANCODE_D] && direction!=4)
+        if ((keyboard_state[SDL_SCANCODE_D] || keyboard_state[SDL_SCANCODE_RIGHT] || keyboard_state[SDL_SCANCODE_L]) && direction!=4)
         {
             direction=2;
         }
-        if (keyboard_state[SDL_SCANCODE_A] && direction!=2)
+        if ((keyboard_state[SDL_SCANCODE_A] || keyboard_state[SDL_SCANCODE_LEFT] || keyboard_state[SDL_SCANCODE_J]) && direction!=2)
         {
             direction=4;
         }
-
-        /* Boundary checking */
-        if(direction==1){snake_y=snake_y-20;}
-        if(direction==3){snake_y=snake_y+20;}
-        if(direction==2){snake_x=snake_x+20;}
-        if(direction==4){snake_x=snake_x-20;}
-
-        if(snake_x>380){snake_x=0;}
-        if(snake_y>380){snake_y=0;}
-        if(snake_x<0){snake_x=380;}
-        if(snake_y<0){snake_y=380;}
-
-        if(snake_x == berry_x && snake_y == berry_y){
-            berry_x = ((rand() % 19) + 1) * 20;
-            berry_y = ((rand() % 19) + 1) * 20;
-            segments++;
+        
+        
+        if (keyboard_state[SDL_SCANCODE_SPACE])
+        {
+          if(pause==0){pause=1;}
+          else{pause=0;}
         }
-        for(int i = 0; i <= segments; i++){
-            if(snake_x == snakebody_x[i] && snake_y == snakebody_y[i]){
-                
-                // GAME OVER
+        
+        if(pause==0){
 
-                snake_x = 200;
-                snake_y = 200;
-                direction = 1;   // 1 - UP    2 - RIGHT    3 - DOWN    4 - LEFT
+          /* Boundary checking */
+          if(direction==1){snake_y=snake_y-20;}
+          if(direction==3){snake_y=snake_y+20;}
+          if(direction==2){snake_x=snake_x+20;}
+          if(direction==4){snake_x=snake_x-20;}
 
-                berry_x = 300;
-                berry_y = 300;
+          if(snake_x>380){snake_x=0;}
+          if(snake_y>380){snake_y=0;}
+          if(snake_x<0){snake_x=380;}
+          if(snake_y<0){snake_y=380;}
 
-                for(int i = 0; i <= segments; i++)
-                {
-                    snakebody_x[i] = 0; snakebody_y[i] = 0;
-                }
-                snakebody_x[0] = snake_x + 20;  snakebody_y[0] = snake_y;
-                snakebody_x[1] = snake_x + 40;  snakebody_y[1] = snake_y;
-                snakebody_x[2] = snake_x + 60;  snakebody_y[2] = snake_y;
+          if(snake_x == berry_x && snake_y == berry_y){
+              berry_x = ((rand() % 19) + 1) * 20;
+              berry_y = ((rand() % 19) + 1) * 20;
+              segments++;
+              snakebody_x[segments]=999;
+          }
+          for(int i = 0; i <= segments; i++){
+              if(snake_x == snakebody_x[i] && snake_y == snakebody_y[i]){
+                  
+                  // GAME OVER
 
-                segments=2;
-                turn=0;
-                break;
+                  snake_x = 200;
+                  snake_y = 200;
+                  direction = 1;   // 1 - UP    2 - RIGHT    3 - DOWN    4 - LEFT
 
-            }
-            
+                  berry_x = 300;
+                  berry_y = 300;
+
+                  for(int i = 0; i <= segments; i++)
+                  {
+                      snakebody_x[i] = 0; snakebody_y[i] = 0;
+                  }
+                  snakebody_x[0] = snake_x + 20;  snakebody_y[0] = snake_y;
+                  snakebody_x[1] = snake_x + 40;  snakebody_y[1] = snake_y;
+                  snakebody_x[2] = snake_x + 60;  snakebody_y[2] = snake_y;
+
+                  segments=2;
+                  turn=0;
+                  break;
+
+              }
+              
+          }
+
+          snakebody_x[turn] = snake_x;
+          snakebody_y[turn] = snake_y;
+          turn++;
+
+          if (turn > segments){turn=0;}
         }
-
-        snakebody_x[turn] = snake_x;
-        snakebody_y[turn] = snake_y;
-        turn++;
-
-        if (turn > segments){turn=0;}
 
         /* ===== RENDERING ===== */
         clear_screen(0xFF87CEEB); /* Light blue background */
         
-        /* Draw player as red rectangle */
+        /* Draw player as green rectangle */
         draw_rect(snake_x, snake_y, 20, 20, 0xFF00FF00);
         for(int i = 0; i <= segments; i++){
             draw_rect(snakebody_x[i], snakebody_y[i], 20, 20, 0xFF00FF00);
